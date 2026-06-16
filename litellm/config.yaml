@@ -1,0 +1,64 @@
+model_list:
+
+  ################################################
+  # GENERAL CHAT MODEL
+  ################################################
+  - model_name: general
+    litellm_params:
+      model: openai/Qwen/Qwen2.5-7B-Instruct
+      api_base: http://vllm-qwen:8000/v1
+      api_key: dummy
+
+  ################################################
+  # CODING MODEL
+  ################################################
+  - model_name: coding
+    litellm_params:
+      model: openai/Qwen/Qwen2.5-Coder-7B-Instruct
+      api_base: http://vllm-qwen-coder:8000/v1
+      api_key: dummy
+
+  ################################################
+  # FAST MODEL
+  ################################################
+  - model_name: fast
+    litellm_params:
+      model: openai/Qwen/Qwen2.5-7B-Instruct
+      api_base: http://vllm-qwen:8000/v1
+      api_key: dummy
+
+  ################################################
+  # FALLBACK MODEL
+  ################################################
+  - model_name: fallback
+    litellm_params:
+      model: openai/Qwen/Qwen2.5-7B-Instruct
+      api_base: http://vllm-qwen:8000/v1
+      api_key: dummy
+
+  ################################################
+  # PAID MODELS
+  ################################################
+  - model_name: gpt-4o
+    litellm_params:
+      model: openai/gpt-4o
+      api_key: "os.environ/OPENAI_API_KEY"
+  - model_name: claude-3-5-sonnet
+    litellm_params:
+      model: anthropic/claude-3-5-sonnet
+      api_key: "os.environ/ANTHROPIC_API_KEY"
+
+router_settings:
+  routing_strategy: simple-shuffle
+  num_retries: 3
+  timeout: 120
+
+general_settings:
+  master_key: "os.environ/LITELLM_MASTER_KEY"
+
+litellm_settings:
+  # success_callback: ["langfuse"]
+  # failure_callback: ["langfuse"]
+  # drop_params: true
+  callbacks: ["langfuse_otel"]
+  

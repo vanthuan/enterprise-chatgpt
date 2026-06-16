@@ -1,0 +1,173 @@
+services:
+  # database for litellm
+  litellm-db:
+    image: postgres:16-alpine
+    container_name: enterprise-postgres
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB}
+      POSTGRES_USER: ${POSTGRES_USER}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+    ports:
+      - "${POSTGRES_PORT}:5432"
+    volumes:
+      - pgdatastore:/var/lib/postgresql/data
+    env_file:
+      - .env
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER} -d ${POSTGRES_DB}"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+  #################################
+  # QWEN vLLM
+  #################################
+  vllm-qwen:
+    image: vllm/vllm-openai:latest
+    container_name: vllm-qwen
+    restart: unless-stopped
+    env_file:
+      - .env
+    ports:
+      - "${QWEN_PORT}:8000"
+    volumes:
+      # Caches downloaded weights so they persist across restarts
+      - ../../../data/models:/root/.cache/huggingface
+    environment:
+      - CUDA_DEVICE_ORDER=PCI_BUS_ID
+      - CUDA_VISIBLE_DEVICES=0
+      # Required if accessing gated Qwen variants
+      - HF_TOKEN=${HF_TOKEN:-}
+      # Optimizes memory management inside the container
+      - VLLM_ALLOW_LONG_MAX_MODEL_LEN=1
+    ipc: host
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: all
+              capabilities: [gpu]
+    command: >
+      --model ${QWEN_MODEL}
+      --host 0.0.0.0
+      --port 8000
+      --dtype float16
+      --quantization bitsandbytes
+      --load-format bitsandbytes
+      --gpu-memory-utilization 0.5
+      --max-model-len 2048
+      --max-num-seqs 1
+      --max-num-batched-tokens 256
+      --enforce-eager
+      --disable-custom-all-reduce
+      --trust-remote-code
+      --enable-auto-tool-choice
+      --tool-call-parser hermes
+
+  #################################
+  # QWEN CODER vLLM
+  #################################
+  vllm-qwen-coder:
+    image: vllm/vllm-openai:latest
+    container_name: vllm-qwen-coder
+    restart: unless-stopped
+    env_file:
+      - .env
+    ports:
+      - "${QWEN_CODER_PORT}:8000"
+    volumes:
+      - ../../data/models:/root/.cache/huggingface
+    environment:
+      - CUDA_DEVICE_ORDER=PCI_BUS_ID
+      - CUDA_VISIBLE_DEVICES=0
+      # Required if accessing gated Qwen variants
+      - HF_TOKEN=${HF_TOKEN:-}
+      # Optimizes memory management inside the container
+      - VLLM_ALLOW_LONG_MAX_MODEL_LEN=1
+    ipc: host
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: all
+              capabilities: [gpu]
+    command: >
+      --model ${QWEN_CODER_MODEL}
+      --host 0.0.0.0
+      --port 8000
+      --dtype float16
+      --quantization bitsandbytes
+      --load-format bitsandbytes
+      --gpu-memory-utilization 0.4
+      --max-model-len 2048
+      --max-num-seqs 1
+      --max-num-batched-tokens 256
+      --enforce-eager
+      --disable-custom-all-reduce
+      --trust-remote-code
+      --enable-prefix-caching
+      --enable-chunked-prefill
+
+  
+  # 3. LiteLLM Gateway Proxy
+  litellm:
+    image: ghcr.io/berriai/litellm:main-latest
+    container_name: enterprise-litellm
+    ports:
+      - "${LITELLM_PORT}:4000"
+    volumes:
+      - ../../litellm/config.yaml:/app/config.yaml
+    env_file:
+      - .env
+    environment:
+      DATABASE_URL: "postgresql://${POSTGRES_USER}:${POSTGRES_PASSWORD}@litellm-db:5432/${POSTGRES_DB}"
+      LANGFUSE_PUBLIC_KEY: "${LANGFUSE_PUBLIC_KEY}"
+      LANGFUSE_SECRET_KEY: "${LANGFUSE_SECRET_KEY}"
+      LANGFUSE_HOST: "${LANGFUSE_HOST}"
+    command: [ "--config=/app/config.yaml", "--detailed_debug" ]
+    healthcheck:
+      test:
+        [
+          "CMD",
+          "python",
+          "-c",
+          "import urllib.request; req=urllib.request.Request('http://localhost:4000/v1/models', headers={'Authorization':'Bearer ${LITELLM_MASTER_KEY}'}); urllib.request.urlopen(req, timeout=5)"
+        ]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+    depends_on:
+      litellm-db:
+        condition: service_healthy
+      vllm-qwen:
+        condition: service_started
+      vllm-qwen-coder:
+        condition: service_started
+    restart: unless-stopped
+
+  # OPEN WEBUI
+  #################################
+  open-webui:
+    image: ghcr.io/open-webui/open-webui:main
+    container_name: enterprise-open-webui
+    restart: always
+    ports:
+      - "${OPEN_WEBUI_PORT}:8080"
+    volumes:
+      - ../../data/open-webui:/app/backend/data
+    env_file:
+      - .env
+    environment:
+      OPENAI_API_BASE_URL: http://litellm:4000/v1
+      OPENAI_API_KEY: ${LITELLM_MASTER_KEY}
+      ENABLE_SIGNUP: true
+    depends_on:
+      litellm:
+        condition: service_healthy
+
+
+volumes:
+  pgdatastore:
+  pgdatalangfuse:
