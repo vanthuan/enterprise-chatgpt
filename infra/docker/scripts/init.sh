@@ -4,7 +4,6 @@ echo "Creating folders..."
 
 mkdir -p \
 ../../data/postgres \
-../../data/redis \
 ../../data/open-webui \
 ../../data/models
 
